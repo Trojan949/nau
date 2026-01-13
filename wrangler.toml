@@ -1,12 +1,12 @@
 name = "nau"
-main = "_worker.js"
-compatibility_date = "2023-12-01"
+main = "worker.js"
+compatibility_date = "2024-05-13"
 
 [vars]
 PROXY_BANK_URL = "https://raw.githubusercontent.com/Trojan949/nau/main/proxyList.txt"
 KV_PROXY_URL = "https://raw.githubusercontent.com/Trojan949/nau/main/kvProxyList.json"
-REVERSE_PROXY_TARGET = "google.com"
+# Gunakan speed.cloudflare.com agar koneksi stabil dan anti error 522
+REVERSE_PROXY_TARGET = "speed.cloudflare.com"
 
 [observability]
 enabled = true
- 
