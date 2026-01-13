@@ -14,13 +14,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Kita pakai Node.js saja yang stabil, bukan BUN
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      # HAPUS Paksa bun.lockb jika masih ada, agar Wrangler tidak bingung
       - name: Remove Bun Lockfile
         run: rm -f bun.lockb
 
@@ -29,13 +27,15 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          packageManager: npm  # Kita paksa pakai NPM
+          packageManager: npm
+          # Kita ubah format secrets agar lebih eksplisit
           secrets: |
             CLOUDFLARE_EMAIL
             CLOUDFLARE_API_KEY
             CLOUDFLARE_ACCOUNT_ID
             CLOUDFLARE_ZONE_ID
         env:
+          # Pastikan mapping ini ada agar secrets terbaca oleh wrangler
           CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
