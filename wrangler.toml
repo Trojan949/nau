@@ -9,3 +9,4 @@ REVERSE_PROXY_TARGET = "google.com"
 
 [observability]
 enabled = true
+ 
