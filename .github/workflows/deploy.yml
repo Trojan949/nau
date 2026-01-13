@@ -19,7 +19,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Remove existing lockfiles
         run: |
@@ -27,8 +26,8 @@ jobs:
           rm -f package-lock.json
           rm -f yarn.lock
 
-      - name: Install dependencies
-        run: npm install wrangler --no-package-lock
+      - name: Install Wrangler
+        run: npm install -g wrangler
 
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
@@ -40,19 +39,9 @@ jobs:
             echo "Starting deployment..."
           postCommands: |
             echo "Deployment completed!"
-          secrets: |
-            CLOUDFLARE_EMAIL
-            CLOUDFLARE_API_KEY
-            CLOUDFLARE_ACCOUNT_ID
-            CLOUDFLARE_ZONE_ID
         env:
           CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
           WRANGLER_SEND_METRICS: false
-
-      - name: Verify deployment
-        run: |
-          echo "Checking deployment status..."
-          curl -s "https://nau.privme.dpdns.org/health" || echo "Health check endpoint not responding"
