@@ -1,12 +1,29 @@
 name = "nau"
 main = "worker.js"
 compatibility_date = "2024-05-13"
+workers_dev = true
 
 [vars]
 PROXY_BANK_URL = "https://raw.githubusercontent.com/Trojan949/nau/main/proxyList.txt"
 KV_PROXY_URL = "https://raw.githubusercontent.com/Trojan949/nau/main/kvProxyList.json"
-# Gunakan speed.cloudflare.com agar koneksi stabil dan anti error 522
 REVERSE_PROXY_TARGET = "speed.cloudflare.com"
+DEFAULT_PROXY_TARGET = "speed.cloudflare.com"
+
+[triggers]
+crons = []
 
 [observability]
 enabled = true
+
+[build]
+command = ""
+watch_dir = "src"
+
+[env.production]
+name = "nau"
+route = ""
+zone_id = ""
+
+[miniflare]
+kv_persist = true
+cache_persist = true
