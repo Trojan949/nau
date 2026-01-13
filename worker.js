@@ -3,8 +3,8 @@ import { connect } from "cloudflare:sockets";
 // ===== SETTING PRIBADI & KONSTANTA =====
 const serviceName = "nau";
 const DEFAULT_PROXY_TARGET = "speed.cloudflare.com";
-const TIMEOUT_SECONDS = 30;
-const MAX_RETRIES = 3;
+const TIMEOUT_SECONDS = 60;
+const MAX_RETRIES = 5;
 const WS_READY_STATE_OPEN = 1;
 const WS_READY_STATE_CLOSING = 2;
 const CORS_HEADER_OPTIONS = {
@@ -16,41 +16,55 @@ const CORS_HEADER_OPTIONS = {
 // Global Variables
 let isApiReady = false;
 let cachedProxyList = [];
-// Optimasi fungsi fetch default
+
+// Error Handler
+const handleError = async (error, request) => {
+    console.error('Error:', error);
+    
+    if (error.message.includes('proxy') || error.message.includes('connection')) {
+        try {
+            const fallbackResponse = await fetch(DEFAULT_PROXY_TARGET);
+            return fallbackResponse;
+        } catch (fallbackError) {
+            console.error('Fallback error:', fallbackError);
+        }
+    }
+    
+    return new Response(
+        JSON.stringify({
+            error: error.message || 'Internal Server Error',
+            timestamp: new Date().toISOString()
+        }),
+        {
+            status: error.status || 500,
+            headers: {
+                'Content-Type': 'application/json',
+                ...CORS_HEADER_OPTIONS
+            }
+        }
+    );
+};
+
+// Optimasi fetch
 async function fetchWithTimeout(url, options = {}) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), TIMEOUT_SECONDS * 1000);
+    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_SECONDS * 1000);
     
     try {
         const response = await fetch(url, {
             ...options,
-            signal: controller.signal
+            signal: controller.signal,
+            cf: {
+                cacheTtl: 300,
+                cacheEverything: true,
+                minify: true,
+            }
         });
-        clearTimeout(timeout);
+        clearTimeout(timeoutId);
         return response;
     } catch (error) {
-        clearTimeout(timeout);
+        clearTimeout(timeoutId);
         throw error;
-    }
-}
-
-function reverse(str) { 
-    return str.split("").reverse().join(""); 
-}
-
-function arrayBufferToHex(buffer) { 
-    return [...new Uint8Array(buffer)].map((x) => x.toString(16).padStart(2, "0")).join(""); 
-}
-
-function base64ToArrayBuffer(base64Str) {
-    if (!base64Str) return { error: null };
-    try {
-        base64Str = base64Str.replace(/-/g, "+").replace(/_/g, "/");
-        const decode = atob(base64Str);
-        const arryBuffer = Uint8Array.from(decode, (c) => c.charCodeAt(0));
-        return { earlyData: arryBuffer.buffer, error: null };
-    } catch (error) { 
-        return { error }; 
     }
 }
 
