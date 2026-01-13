@@ -1,10 +1,14 @@
-name = "nautica"
+name = "nau"
 main = "_worker.js"
-compatibility_date = "2024-09-23"
-compatibility_flags = ["nodejs_compat_v2"]
+compatibility_date = "2023-12-01"
 
-[unsafe.metadata.observability]
-enabled = true
+[vars]
+# Link ke database proxy pribadi kamu di GitHub
+PROXY_BANK_URL = "https://raw.githubusercontent.com/Trojan949/nau/main/proxyList.txt"
+# Link ke pemetaan negara pribadi kamu
+KV_PROXY_URL = "https://raw.githubusercontent.com/Trojan949/nau/main/kvProxyList.json"
+# Target halaman depan (bisa kamu ganti ke website lain)
+REVERSE_PROXY_TARGET = "google.com"
 
-[observability.logs]
+[observability]
 enabled = true
