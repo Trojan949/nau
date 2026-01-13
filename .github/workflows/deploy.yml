@@ -5,22 +5,30 @@ on:
     branches:
       - main
       - master
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     name: Deploy
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
 
-      - name: Remove Bun Lockfile
-        run: rm -f bun.lockb
+      - name: Remove existing lockfiles
+        run: |
+          rm -f bun.lockb
+          rm -f package-lock.json
+          rm -f yarn.lock
+
+      - name: Install dependencies
+        run: npm install wrangler --no-package-lock
 
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
@@ -28,15 +36,23 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           packageManager: npm
-          # Kita ubah format secrets agar lebih eksplisit
+          preCommands: |
+            echo "Starting deployment..."
+          postCommands: |
+            echo "Deployment completed!"
           secrets: |
             CLOUDFLARE_EMAIL
             CLOUDFLARE_API_KEY
             CLOUDFLARE_ACCOUNT_ID
             CLOUDFLARE_ZONE_ID
         env:
-          # Pastikan mapping ini ada agar secrets terbaca oleh wrangler
           CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+          WRANGLER_SEND_METRICS: false
+
+      - name: Verify deployment
+        run: |
+          echo "Checking deployment status..."
+          curl -s "https://nau.privme.dpdns.org/health" || echo "Health check endpoint not responding"
