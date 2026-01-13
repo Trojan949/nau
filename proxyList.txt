@@ -2344,12 +2344,16 @@
 46.183.186.57,443,HU,EDIS Infrastructure in Hungary
 5.182.38.183,443,HU,WorkTitans B.V.
 77.91.72.82,443,HU,WorkTitans B.V.
-43.218.77.16,1443,ID,Amazon.com, Inc.
-172.232.239.151,587,ID,Linode
+8.215.57.14,443,ID,alibaba cloud id1.
+147.139.140.61,443,ID,alibaba cloud id2.
+8.215.45.203,443,ID,alibaba cloud id3.
 43.218.77.16,443,ID,Amazon.com, Inc.
-203.194.112.119,8443,ID,CV. Rumahweb Indonesia
-203.194.112.119,2053,ID,CV. Rumahweb Indonesia
-103.6.207.108,8080,ID,PT Pusat Media Indonesia
+43.218.77.16,1443,ID,Amazon.com, Inc.
+156.244.1.250,8443,ID,Lightnode Jakarta.
+43.218.77.16,443,ID,Amazon.com, Inc.
+31.97.50.106,443,ID,Hostinger ID.
+36.95.152.58,12137,ID,PT Telekomunikasi ID
+103.6.207.108,8080,ID,PT Pusat Media ID
 40.113.60.248,2053,IE,Microsoft Corporation
 40.113.60.248,8443,IE,Microsoft Corporation
 52.19.178.111,8443,IE,Amazon Data Services Ireland Limited
