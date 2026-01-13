@@ -1,9 +1,9 @@
 import { connect } from "cloudflare:sockets";
 
 // ===== SETTING PRIBADI =====
-const rootDomain = "privme.dpdns.org";
-const serviceName = "nau";
-const DONATE_LINK = "https://t.me/your_telegram"; // Ganti dengan link kontakmu
+const serviceName = "nau"; 
+// Jika REVERSE_PROXY_TARGET tidak diisi di Secrets, akan pakai default ini:
+const DEFAULT_PROXY_TARGET = "speed.cloudflare.com"; 
 // ===========================
 
 // Constants
@@ -14,11 +14,9 @@ const CORS_HEADER_OPTIONS = {
   "Access-Control-Allow-Methods": "GET,HEAD,POST,OPTIONS",
   "Access-Control-Max-Age": "86400",
 };
-const PROXY_HEALTH_CHECK_API = "https://api.foolvpn.me/check"; 
 
 // Global Variables
 let isApiReady = false;
-let proxyIP = "";
 let cachedProxyList = [];
 
 export default {
@@ -30,9 +28,7 @@ export default {
       const accountID = env.CLOUDFLARE_ACCOUNT_ID;
       const zoneID = env.CLOUDFLARE_ZONE_ID;
 
-      if (apiKey && apiEmail && accountID && zoneID) {
-        isApiReady = true;
-      }
+      if (apiKey && apiEmail && accountID && zoneID) isApiReady = true;
 
       const url = new URL(request.url);
       const upgradeHeader = request.headers.get("Upgrade");
@@ -40,9 +36,10 @@ export default {
 
       // 2. Handle WebSocket (VPN Tunneling)
       if (upgradeHeader === "websocket") {
+        let proxyIP = "";
         const proxyMatch = url.pathname.match(/^\/(.+[:=-]\d+)$/);
 
-        // Logic pemilihan Proxy IP dari Path atau KV
+        // Logic pemilihan Proxy IP
         if (url.pathname.length == 4 || url.pathname.match(",")) { 
           const proxyKeys = url.pathname.replace("/", "").toUpperCase().split(",");
           const proxyKey = proxyKeys[Math.floor(Math.random() * proxyKeys.length)];
@@ -110,14 +107,15 @@ export default {
         }
       }
 
-      // 5. Default: Reverse Proxy
-      const targetReverseProxy = env.REVERSE_PROXY_TARGET || "www.google.com";
+      // 5. Default: Reverse Proxy (Optimized)
+      const targetReverseProxy = env.REVERSE_PROXY_TARGET || DEFAULT_PROXY_TARGET;
       return await reverseProxy(request, targetReverseProxy);
 
     } catch (err) {
-      return new Response(`An error occurred: ${err.toString()}\n${err.stack}`, {
+      // Error handling yang lebih rapi
+      return new Response(JSON.stringify({ error: err.toString(), stack: err.stack }), {
         status: 500,
-        headers: CORS_HEADER_OPTIONS,
+        headers: { ...CORS_HEADER_OPTIONS, "Content-Type": "application/json" },
       });
     }
   },
@@ -135,8 +133,10 @@ async function websocketHandler(request, assignedProxyIP) {
 
   let addressLog = "";
   let portLog = "";
+  // Log yang lebih tenang (silent error wajar)
   const log = (info, event) => {
-    console.log(`[${addressLog}:${portLog}] ${info}`, event || "");
+    // Uncomment baris bawah untuk debugging detail
+    // console.log(`[${addressLog}:${portLog}] ${info}`, event || "");
   };
 
   const earlyDataHeader = request.headers.get("sec-websocket-protocol") || "";
@@ -229,8 +229,8 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawCli
   async function connectAndWrite(address, port) {
     const targetHostname = assignedProxyIP ? assignedProxyIP.split(/[:=-]/)[0] : address;
     const targetPort = assignedProxyIP ? parseInt(assignedProxyIP.split(/[:=-]/)[1] || port) : port;
-    log(`connecting to ${targetHostname}:${targetPort} (Origin: ${address}:${port})`);
     
+    // Connect to Cloudflare Socket
     const tcpSocket = connect({ hostname: targetHostname, port: targetPort });
     remoteSocket.value = tcpSocket;
     const writer = tcpSocket.writable.getWriter();
@@ -396,10 +396,11 @@ function base64ToArrayBuffer(base64Str) {
 
 function arrayBufferToHex(buffer) { return [...new Uint8Array(buffer)].map((x) => x.toString(16).padStart(2, "0")).join(""); }
 
+// Optimasi Fetch Proxy List (Ada fallback)
 async function getProxyList(url) {
     try {
         const response = await fetch(url);
-        if (!response.ok) return [];
+        if (!response.ok) throw new Error("Network response was not ok");
         const text = await response.text();
         const lines = text.split('\n');
         const proxies = [];
@@ -417,18 +418,32 @@ async function getProxyList(url) {
             }
         }
         return proxies;
-    } catch(e) { return []; }
+    } catch(e) { 
+        console.error("Error fetching proxy list, using empty list", e);
+        return []; 
+    }
 }
 
 async function getKVProxyList(url) {
     try { const res = await fetch(url); return await res.json(); } catch { return {}; }
 }
 
+// Optimasi Reverse Proxy agar support www dan https otomatis
 async function reverseProxy(request, target) {
     const url = new URL(request.url);
     url.hostname = target;
-    const newReq = new Request(url, { method: request.method, headers: request.headers, body: request.body });
+    url.protocol = "https:"; // Paksa HTTPS agar lebih aman
+
+    const newReq = new Request(url, {
+        method: request.method,
+        headers: request.headers,
+        body: request.body
+    });
+
+    // Set header Host & Referer agar target server tidak menolak request
     newReq.headers.set("Host", target);
+    newReq.headers.set("Referer", `https://${target}/`);
+    
     return fetch(newReq);
 }
 
@@ -445,8 +460,7 @@ async function getAllConfig(request, hostname, proxyList, pageIndex) {
   const slicedProxies = proxyList.slice(start, end);
 
   for(const proxy of slicedProxies) {
-      // GENERATE RANDOM UUID PER NODE
-      const uuid = crypto.randomUUID();
+      const uuid = crypto.randomUUID(); // Auto UUID
       const path = `/${proxy.proxyIP}:${proxy.proxyPort}`; 
       
       const vlessTls = `vless://${uuid}@${hostname}:443?encryption=none&security=tls&sni=${hostname}&fp=chrome&type=ws&host=${hostname}&path=${path}#${proxy.org}-TLS`;
