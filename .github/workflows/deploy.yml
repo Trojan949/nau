@@ -1,25 +1,30 @@
-name: Deploy Worker
+name: Deploy to Cloudflare Workers
+
 on:
   push:
     branches:
-      - main
+      - main  # Atau 'master', sesuaikan dengan branch utama kamu
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    name: Deploy
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
-        with:
-          bun-version: latest
 
-      - name: Install Dependencies
-        run: bun install
-
-      - name: Deploy to Cloudflare
+      - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
         with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          command: deploy
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # Rahasia di bawah ini akan dikirim ke Worker sebagai Environment Variables
+          secrets: |
+            CLOUDFLARE_EMAIL
+            CLOUDFLARE_API_KEY
+            CLOUDFLARE_ACCOUNT_ID
+            CLOUDFLARE_ZONE_ID
+        env:
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
