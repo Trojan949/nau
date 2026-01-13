@@ -3,21 +3,33 @@ name: Deploy to Cloudflare Workers
 on:
   push:
     branches:
-      - main  # Atau 'master', sesuaikan dengan branch utama kamu
+      - main
+      - master
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     name: Deploy
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Kita pakai Node.js saja yang stabil, bukan BUN
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # HAPUS Paksa bun.lockb jika masih ada, agar Wrangler tidak bingung
+      - name: Remove Bun Lockfile
+        run: rm -f bun.lockb
 
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          # Rahasia di bawah ini akan dikirim ke Worker sebagai Environment Variables
+          packageManager: npm  # Kita paksa pakai NPM
           secrets: |
             CLOUDFLARE_EMAIL
             CLOUDFLARE_API_KEY
