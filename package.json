@@ -1,16 +1,12 @@
 {
-  "name": "nautica",
+  "name": "nau",
   "version": "1.0.0",
-  "license": "ISC",
-  "type": "module",
-  "devDependencies": {
-    "@types/bun": "latest"
-  },
-  "peerDependencies": {
-    "typescript": "^5.0.0"
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
   },
   "dependencies": {
-    "@types/node": "^22.10.2",
-    "javascript-obfuscator": "^4.1.1"
+    "wrangler": "^3.0.0"
   }
 }
