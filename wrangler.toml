@@ -7,22 +7,13 @@ workers_dev = true
 PROXY_BANK_URL = "https://raw.githubusercontent.com/Trojan949/nau/main/proxyList.txt"
 KV_PROXY_URL = "https://raw.githubusercontent.com/Trojan949/nau/main/kvProxyList.json"
 REVERSE_PROXY_TARGET = "speed.cloudflare.com"
-DEFAULT_PROXY_TARGET = "speed.cloudflare.com"
 
-[triggers]
-crons = []
-
-[observability]
-enabled = true
+[route]
+pattern = "nau.privme.dpdns.org/*"
+zone_id = "782fdfef36abf4bb5ace4ef08b87bb16"
 
 [build]
 command = ""
-watch_dir = "src"
-
-[env.production]
-name = "nau"
-route = ""
-zone_id = ""
 
 [miniflare]
 kv_persist = true
