@@ -20,12 +20,6 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Remove existing lockfiles
-        run: |
-          rm -f bun.lockb
-          rm -f package-lock.json
-          rm -f yarn.lock
-
       - name: Install Wrangler
         run: npm install -g wrangler
 
