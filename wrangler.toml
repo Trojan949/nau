@@ -6,14 +6,15 @@ workers_dev = true
 [vars]
 PROXY_BANK_URL = "https://raw.githubusercontent.com/Trojan949/nau/main/proxyList.txt"
 KV_PROXY_URL = "https://raw.githubusercontent.com/Trojan949/nau/main/kvProxyList.json"
-REVERSE_PROXY_TARGET = "speed.cloudflare.com"
+REVERSE_PRX_TARGET = "speed.cloudflare.com"
+EMBED_ASSETS = "true"
 
-[route]
-pattern = "nau.privme.dpdns.org/*"
-zone_id = "782fdfef36abf4bb5ace4ef08b87bb16"
+[triggers]
+crons = []
 
 [build]
 command = ""
+watch_dir = "src"
 
 [miniflare]
 kv_persist = true
