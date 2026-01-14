@@ -7,7 +7,6 @@ workers_dev = true
 PROXY_BANK_URL = "https://raw.githubusercontent.com/Trojan949/nau/main/proxyList.txt"
 KV_PROXY_URL = "https://raw.githubusercontent.com/Trojan949/nau/main/kvProxyList.json"
 REVERSE_PRX_TARGET = "speed.cloudflare.com"
-EMBED_ASSETS = "true"
 
 [triggers]
 crons = []
