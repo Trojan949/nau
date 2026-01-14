@@ -4,7 +4,10 @@ export default {
     
     // Test endpoint
     if (url.pathname === '/test') {
-      return new Response('Worker is OK! ✅', { status: 200 });
+      return new Response('Worker is OK! ✅', { 
+        status: 200,
+        headers: { 'Content-Type': 'text/plain' }
+      });
     }
     
     // Test KV fetch
@@ -14,13 +17,20 @@ export default {
         const response = await fetch(kvUrl);
         const data = await response.json();
         return new Response(JSON.stringify(data, null, 2), {
+          status: 200,
           headers: { 'Content-Type': 'application/json' }
         });
       } catch (e) {
-        return new Response(`KV Error: ${e.message}`, { status: 500 });
+        return new Response(`KV Error: ${e.message}`, { 
+          status: 500,
+          headers: { 'Content-Type': 'text/plain' }
+        });
       }
     }
     
-    return new Response('Hello from NAU Worker!', { status: 200 });
+    return new Response('Hello from NAU Worker! 🚀', { 
+      status: 200,
+      headers: { 'Content-Type': 'text/plain' }
+    });
   }
 };
