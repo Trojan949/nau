@@ -1,7 +1,7 @@
 import { connect } from "cloudflare:sockets";
 
 // Variables
-let serviceName = "";
+let serviceName = "nau";
 let APP_DOMAIN = "";
 let prxIP = "";
 let cachedPrxList = [];
@@ -135,6 +135,54 @@ async function embedAssets(response, originalUrl) {
   });
 
   return rewriter.transform(response);
+async function handleSubPage(request) {
+    try {
+        const url = new URL(request.url);
+        const page = url.pathname.match(/^\/sub\/(\d+)$/);
+        const pageIndex = parseInt(page ? page[1] : "0");
+        const pageSize = 20;
+
+        const countrySelect = url.searchParams.get("cc")?.split(",");
+        const kvPrx = await getKVPrxList();
+        
+        let proxyList = [];
+        for (const [country, ips] of Object.entries(kvPrx)) {
+            if (!countrySelect || countrySelect.includes(country)) {
+                ips.forEach(ip => {
+                    const [proxyIP, proxyPort] = ip.split(/[:=-]/);
+                    proxyList.push({
+                        proxyIP,
+                        proxyPort,
+                        country,
+                        org: `${country}-${proxyIP}`
+                    });
+                });
+            }
+        }
+
+        const start = pageIndex * pageSize;
+        const end = start + pageSize;
+        const slicedProxies = proxyList.slice(start, end);
+
+        const doc = new Document(request);
+        doc.setTitle("Available Proxies");
+
+        for (const proxy of slicedProxies) {
+            const configs = await generateConfig(url.hostname, proxy);
+            doc.addProxy(proxy, configs);
+        }
+
+        doc.addPagination(pageIndex, end < proxyList.length);
+
+        return new Response(doc.build(), {
+            headers: { 
+                "Content-Type": "text/html;charset=utf-8",
+                "Cache-Control": "public, max-age=300"
+            }
+        });
+    } catch (err) {
+        return new Response(`Error: ${err.message}`, { status: 500 });
+    }
 }
 export default {
   async fetch(request, env, ctx) {
