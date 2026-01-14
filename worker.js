@@ -10,7 +10,6 @@ const vless = "dmxlc3M=";  // "vless" in base64
 
 const PORTS = [443, 80];
 const PROTOCOLS = [atob(horse), atob(flash), atob(vless), "ss"];
-const KV_PRX_URL = "https://raw.githubusercontent.com/backup-heavenly-demons/gateway/refs/heads/main/kvProxyList.json";
 const DNS_SERVER_ADDRESS = "8.8.8.8";
 const DNS_SERVER_PORT = 53;
 const RELAY_SERVER_UDP = {
@@ -70,15 +69,23 @@ function safeCloseWebSocket(socket) {
   }
 }
 
-async function getKVPrxList(kvPrxUrl = KV_PRX_URL) {
+async function getKVPrxList(env) {
+  const kvPrxUrl = env.KV_PROXY_URL || "https://raw.githubusercontent.com/Trojan949/nau/main/kvProxyList.json";
+  
   if (!kvPrxUrl) {
     throw new Error("No URL Provided!");
   }
 
-  const kvPrx = await fetch(kvPrxUrl);
-  if (kvPrx.status == 200) {
-    return await kvPrx.json();
-  } else {
+  try {
+    const kvPrx = await fetch(kvPrxUrl);
+    if (kvPrx.status === 200) {
+      return await kvPrx.json();
+    } else {
+      console.error(`Failed to fetch KV Proxy List: ${kvPrx.status}`);
+      return {};
+    }
+  } catch (error) {
+    console.error("Error fetching KV Proxy List:", error);
     return {};
   }
 }
@@ -543,7 +550,7 @@ async function remoteSocketToWS(remoteSocket, webSocket, responseHeader, retry, 
   }
 }
 
-async function websocketHandler(request) {
+async function websocketHandler(request, env) {
   const webSocketPair = new WebSocketPair();
   const [client, webSocket] = Object.values(webSocketPair);
 
@@ -746,7 +753,7 @@ async function embedAssets(response, originalUrl) {
   return rewriter.transform(response);
 }
 
-async function handleSubPage(request) {
+async function handleSubPage(request, env) {
   try {
     const url = new URL(request.url);
     const page = url.pathname.match(/^\/sub\/(\d+)$/);
@@ -754,7 +761,7 @@ async function handleSubPage(request) {
     const pageSize = 20;
 
     const countrySelect = url.searchParams.get("cc")?.split(",");
-    const kvPrx = await getKVPrxList();
+    const kvPrx = await getKVPrxList(env);
     
     let proxyList = [];
     for (const [country, ips] of Object.entries(kvPrx)) {
@@ -776,7 +783,7 @@ async function handleSubPage(request) {
     const slicedProxies = proxyList.slice(start, end);
 
     const doc = new Document(request);
-    doc.setTitle("Available Proxies");
+    doc.setTitle("Available Proxies - NAU");
 
     for (const proxy of slicedProxies) {
       const configs = await generateConfig(url.hostname, proxy);
@@ -984,27 +991,29 @@ export default {
         if (url.pathname.length == 3 || url.pathname.match(",")) {
           const prxKeys = url.pathname.replace("/", "").toUpperCase().split(",");
           const prxKey = prxKeys[Math.floor(Math.random() * prxKeys.length)];
-          const kvPrx = await getKVPrxList();
+          const kvPrx = await getKVPrxList(env);
 
           if (kvPrx && kvPrx[prxKey]) {
             const selectedPrx = kvPrx[prxKey][Math.floor(Math.random() * kvPrx[prxKey].length)];
             prxIP = selectedPrx.replace(/[-=]/, ':');
           }
-          return await websocketHandler(request);
+          return await websocketHandler(request, env);
         } else if (prxMatch) {
           prxIP = `${prxMatch[1]}:${prxMatch[2]}`;
-          return await websocketHandler(request);
+          return await websocketHandler(request, env);
         }
       }
 
       // Handle web interface and reverse proxy
       if (url.pathname.startsWith("/sub")) {
-        return await handleSubPage(request);
+        return await handleSubPage(request, env);
       }
 
-      const targetReversePrx = env.REVERSE_PRX_TARGET || "example.com";
+      // Use environment variable for reverse proxy target
+      const targetReversePrx = env.REVERSE_PRX_TARGET || "speed.cloudflare.com";
       const response = await reverseWeb(request, targetReversePrx);
 
+      // Use environment variable for embed assets option
       if (env.EMBED_ASSETS === 'true' && response.headers.get('content-type')?.includes('text/html')) {
         return embedAssets(response, url);
       }
