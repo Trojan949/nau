@@ -1,12 +1,7 @@
+// ===== IMPORTS =====
 import { connect } from "cloudflare:sockets";
 
-// Variables
-let serviceName = "nau";
-let APP_DOMAIN = "";
-let prxIP = "";
-let cachedPrxList = [];
-
-// Constant
+// ===== CONSTANTS =====
 const horse = "dHJvamFu";  // "trojan" in base64
 const flash = "dm1lc3M=";  // "vmess" in base64
 const v2 = "djJyYXk=";    // "v2ray" in base64
@@ -29,6 +24,52 @@ const CORS_HEADER_OPTIONS = {
   "Access-Control-Allow-Methods": "GET,HEAD,POST,OPTIONS",
   "Access-Control-Max-Age": "86400",
 };
+
+// ===== VARIABLES =====
+let serviceName = "";
+let APP_DOMAIN = "";
+let prxIP = "";
+let cachedPrxList = [];
+
+// ===== UTILITY FUNCTIONS =====
+function arrayBufferToHex(buffer) {
+  return [...new Uint8Array(buffer)].map((x) => x.toString(16).padStart(2, "0")).join("");
+}
+
+function bufferToBase64(buffer) {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+function base64ToArrayBuffer(base64Str) {
+  if (!base64Str) {
+    return { error: null };
+  }
+  try {
+    base64Str = base64Str.replace(/-/g, "+").replace(/_/g, "/");
+    const decode = atob(base64Str);
+    const arryBuffer = Uint8Array.from(decode, (c) => c.charCodeAt(0));
+    return { earlyData: arryBuffer.buffer, error: null };
+  } catch (error) {
+    return { error };
+  }
+}
+
+function safeCloseWebSocket(socket) {
+  try {
+    if (socket.readyState === WS_READY_STATE_OPEN || socket.readyState === WS_READY_STATE_CLOSING) {
+      socket.close();
+    }
+  } catch (error) {
+    console.error("safeCloseWebSocket error", error);
+  }
+}
+
 async function getKVPrxList(kvPrxUrl = KV_PRX_URL) {
   if (!kvPrxUrl) {
     throw new Error("No URL Provided!");
@@ -42,317 +83,7 @@ async function getKVPrxList(kvPrxUrl = KV_PRX_URL) {
   }
 }
 
-async function reverseWeb(request, target, targetPath) {
-  const targetUrl = new URL(request.url);
-  const targetChunk = target.split(":");
-
-  targetUrl.hostname = targetChunk[0];
-  targetUrl.port = targetChunk[1]?.toString() || "443";
-  targetUrl.pathname = targetPath || targetUrl.pathname;
-
-  const modifiedRequest = new Request(targetUrl, request);
-  modifiedRequest.headers.set("X-Forwarded-Host", request.headers.get("Host"));
-
-  const response = await fetch(modifiedRequest);
-
-  const newResponse = new Response(response.body, response);
-  for (const [key, value] of Object.entries(CORS_HEADER_OPTIONS)) {
-    newResponse.headers.set(key, value);
-  }
-  newResponse.headers.set("X-Proxied-By", "Cloudflare Worker");
-
-  return newResponse;
-}
-
-function bufferToBase64(buffer) {
-    let binary = '';
-    const bytes = new Uint8Array(buffer);
-    const len = bytes.byteLength;
-    for (let i = 0; i < len; i++) {
-        binary += String.fromCharCode(bytes[i]);
-    }
-    return btoa(binary);
-}
-
-async function embedAssets(response, originalUrl) {
-  const rewriter = new HTMLRewriter();
-
-  const fetchAndEncode = async (assetUrl) => {
-    try {
-      const absoluteUrl = new URL(assetUrl, originalUrl.href).href;
-      const assetResponse = await fetch(absoluteUrl);
-      if (!assetResponse.ok) return null;
-
-      const contentType = assetResponse.headers.get('content-type') || 'application/octet-stream';
-      const buffer = await assetResponse.arrayBuffer();
-      const base64 = bufferToBase64(buffer);
-      return `data:${contentType};base64,${base64}`;
-    } catch (e) {
-      console.error(`Failed to fetch and embed asset: ${assetUrl}`, e);
-      return null;
-    }
-  };
-
-  rewriter.on('link[rel="stylesheet"]', {
-    async element(element) {
-      const href = element.getAttribute('href');
-      if (href) {
-        const absoluteUrl = new URL(href, originalUrl.href).href;
-        const cssResponse = await fetch(absoluteUrl);
-        if (cssResponse.ok) {
-            const cssText = await cssResponse.text();
-            element.replace(`<style>${cssText}</style>`, { html: true });
-        }
-      }
-    },
-  });
-
-  rewriter.on('img', {
-    async element(element) {
-      const src = element.getAttribute('src');
-      if (src && !src.startsWith('data:')) {
-        const dataUri = await fetchAndEncode(src);
-        if (dataUri) {
-          element.setAttribute('src', dataUri);
-        }
-      }
-    },
-  });
-
-  rewriter.on('script[src]', {
-    async element(element) {
-      const src = element.getAttribute('src');
-      if (src) {
-        const absoluteUrl = new URL(src, originalUrl.href).href;
-        const scriptResponse = await fetch(absoluteUrl);
-        if (scriptResponse.ok) {
-          const scriptText = await scriptResponse.text();
-          element.removeAttribute('src');
-          element.append(scriptText, { html: false });
-        }
-      }
-    }
-  });
-
-  return rewriter.transform(response);
-async function handleSubPage(request) {
-    try {
-        const url = new URL(request.url);
-        const page = url.pathname.match(/^\/sub\/(\d+)$/);
-        const pageIndex = parseInt(page ? page[1] : "0");
-        const pageSize = 20;
-
-        const countrySelect = url.searchParams.get("cc")?.split(",");
-        const kvPrx = await getKVPrxList();
-        
-        let proxyList = [];
-        for (const [country, ips] of Object.entries(kvPrx)) {
-            if (!countrySelect || countrySelect.includes(country)) {
-                ips.forEach(ip => {
-                    const [proxyIP, proxyPort] = ip.split(/[:=-]/);
-                    proxyList.push({
-                        proxyIP,
-                        proxyPort,
-                        country,
-                        org: `${country}-${proxyIP}`
-                    });
-                });
-            }
-        }
-
-        const start = pageIndex * pageSize;
-        const end = start + pageSize;
-        const slicedProxies = proxyList.slice(start, end);
-
-        const doc = new Document(request);
-        doc.setTitle("Available Proxies");
-
-        for (const proxy of slicedProxies) {
-            const configs = await generateConfig(url.hostname, proxy);
-            doc.addProxy(proxy, configs);
-        }
-
-        doc.addPagination(pageIndex, end < proxyList.length);
-
-        return new Response(doc.build(), {
-            headers: { 
-                "Content-Type": "text/html;charset=utf-8",
-                "Cache-Control": "public, max-age=300"
-            }
-        });
-    } catch (err) {
-        return new Response(`Error: ${err.message}`, { status: 500 });
-    }
-}
-export default {
-  async fetch(request, env, ctx) {
-    try {
-      const url = new URL(request.url);
-      APP_DOMAIN = url.hostname;
-      serviceName = APP_DOMAIN.split(".")[0];
-
-      const upgradeHeader = request.headers.get("Upgrade");
-
-      // Handle WebSocket connections
-      if (upgradeHeader === "websocket") {
-        // Support multiple separators: "-", ":", "="
-        const pathRegex = /^\/([^:=-]+)[:=-](\d+)$/;
-        const prxMatch = url.pathname.match(pathRegex);
-
-        if (url.pathname.length == 3 || url.pathname.match(",")) {
-          const prxKeys = url.pathname.replace("/", "").toUpperCase().split(",");
-          const prxKey = prxKeys[Math.floor(Math.random() * prxKeys.length)];
-          const kvPrx = await getKVPrxList();
-
-          if (kvPrx && kvPrx[prxKey]) {
-            const selectedPrx = kvPrx[prxKey][Math.floor(Math.random() * kvPrx[prxKey].length)];
-            prxIP = selectedPrx.replace(/[-=]/, ':');
-          }
-          return await websocketHandler(request);
-        } else if (prxMatch) {
-          prxIP = `${prxMatch[1]}:${prxMatch[2]}`;
-          return await websocketHandler(request);
-        }
-      }
-
-      // Handle web interface and reverse proxy
-      if (url.pathname.startsWith("/sub")) {
-        return await handleSubPage(request);
-      }
-
-      const targetReversePrx = env.REVERSE_PRX_TARGET || "example.com";
-      const response = await reverseWeb(request, targetReversePrx);
-
-      if (env.EMBED_ASSETS === 'true' && response.headers.get('content-type')?.includes('text/html')) {
-        return embedAssets(response, url);
-      }
-
-      return response;
-    } catch (err) {
-      return new Response(`An error occurred: ${err.toString()}`, {
-        status: 500,
-        headers: { ...CORS_HEADER_OPTIONS },
-      });
-    }
-  },
-};
-async function websocketHandler(request) {
-  const webSocketPair = new WebSocketPair();
-  const [client, webSocket] = Object.values(webSocketPair);
-
-  webSocket.accept();
-
-  let addressLog = "";
-  let portLog = "";
-  const log = (info, event) => {
-    console.log(`[${addressLog}:${portLog}] ${info}`, event || "");
-  };
-  const earlyDataHeader = request.headers.get("sec-websocket-protocol") || "";
-
-  const readableWebSocketStream = makeReadableWebSocketStream(webSocket, earlyDataHeader, log);
-
-  let remoteSocketWrapper = {
-    value: null,
-  };
-  let isDNS = false;
-
-  readableWebSocketStream
-    .pipeTo(
-      new WritableStream({
-        async write(chunk, controller) {
-          if (isDNS) {
-            return handleUDPOutbound(
-              DNS_SERVER_ADDRESS,
-              DNS_SERVER_PORT,
-              chunk,
-              webSocket,
-              null,
-              log,
-              RELAY_SERVER_UDP
-            );
-          }
-          if (remoteSocketWrapper.value) {
-            const writer = remoteSocketWrapper.value.writable.getWriter();
-            await writer.write(chunk);
-            writer.releaseLock();
-            return;
-          }
-
-          const protocol = await protocolSniffer(chunk);
-          let protocolHeader;
-
-          if (protocol === atob(horse)) {
-            protocolHeader = readHorseHeader(chunk);
-          } else if (protocol === atob(flash)) {
-            protocolHeader = readFlashHeader(chunk);
-          } else if (protocol === atob(vless)) {
-            protocolHeader = readVlessHeader(chunk);
-          } else if (protocol === "ss") {
-            protocolHeader = readSsHeader(chunk);
-          } else {
-            throw new Error("Unknown Protocol!");
-          }
-
-          addressLog = protocolHeader.addressRemote;
-          portLog = `${protocolHeader.portRemote} -> ${protocolHeader.isUDP ? "UDP" : "TCP"}`;
-
-          if (protocolHeader.hasError) {
-            throw new Error(protocolHeader.message);
-          }
-
-          if (protocolHeader.isUDP) {
-            if (protocolHeader.portRemote === 53) {
-              isDNS = true;
-              return handleUDPOutbound(
-                DNS_SERVER_ADDRESS,
-                DNS_SERVER_PORT,
-                chunk,
-                webSocket,
-                protocolHeader.version,
-                log,
-                RELAY_SERVER_UDP
-              );
-            }
-
-            return handleUDPOutbound(
-              protocolHeader.addressRemote,
-              protocolHeader.portRemote,
-              chunk,
-              webSocket,
-              protocolHeader.version,
-              log,
-              RELAY_SERVER_UDP
-            );
-          }
-
-          handleTCPOutBound(
-            remoteSocketWrapper,
-            protocolHeader.addressRemote,
-            protocolHeader.portRemote,
-            protocolHeader.rawClientData,
-            webSocket,
-            protocolHeader.version,
-            log
-          );
-        },
-        close() {
-          log(`readableWebSocketStream is close`);
-        },
-        abort(reason) {
-          log(`readableWebSocketStream is abort`, JSON.stringify(reason));
-        },
-      })
-    )
-    .catch((err) => {
-      log("readableWebSocketStream pipeTo error", err);
-    });
-
-  return new Response(null, {
-    status: 101,
-    webSocket: client,
-  });
-}
-
+// ===== PROTOCOL DETECTION =====
 async function protocolSniffer(buffer) {
   if (buffer.byteLength >= 62) {
     const horseDelimiter = new Uint8Array(buffer.slice(56, 60));
@@ -370,7 +101,6 @@ async function protocolSniffer(buffer) {
     return atob(flash);
   }
 
-  // Add VLESS detection
   const vlessDelimiter = new Uint8Array(buffer.slice(0, 1));
   if (vlessDelimiter[0] === 0x00) {
     return atob(vless);
@@ -378,6 +108,8 @@ async function protocolSniffer(buffer) {
 
   return "ss"; // default
 }
+
+// ===== PROTOCOL HEADER READERS =====
 function readVlessHeader(buffer) {
   const version = new Uint8Array(buffer.slice(0, 1));
   if (version[0] !== 0) {
@@ -450,6 +182,7 @@ function readVlessHeader(buffer) {
     isUDP: isUDP,
   };
 }
+
 function readHorseHeader(buffer) {
   const dataBuffer = buffer.slice(58);
   if (dataBuffer.byteLength < 6) {
@@ -639,6 +372,8 @@ function readSsHeader(buffer) {
     isUDP: portRemote == 53,
   };
 }
+
+// ===== CONNECTION HANDLERS =====
 async function handleTCPOutBound(
   remoteSocket,
   addressRemote,
@@ -727,6 +462,7 @@ async function handleUDPOutbound(targetAddress, targetPort, dataChunk, webSocket
   }
 }
 
+// ===== WEBSOCKET FUNCTIONS =====
 function makeReadableWebSocketStream(webSocketServer, earlyDataHeader, log) {
   let readableStreamCancel = false;
   const stream = new ReadableStream({
@@ -807,33 +543,260 @@ async function remoteSocketToWS(remoteSocket, webSocket, responseHeader, retry, 
   }
 }
 
-function safeCloseWebSocket(socket) {
-  try {
-    if (socket.readyState === WS_READY_STATE_OPEN || socket.readyState === WS_READY_STATE_CLOSING) {
-      socket.close();
+async function websocketHandler(request) {
+  const webSocketPair = new WebSocketPair();
+  const [client, webSocket] = Object.values(webSocketPair);
+
+  webSocket.accept();
+
+  let addressLog = "";
+  let portLog = "";
+  const log = (info, event) => {
+    console.log(`[${addressLog}:${portLog}] ${info}`, event || "");
+  };
+  const earlyDataHeader = request.headers.get("sec-websocket-protocol") || "";
+
+  const readableWebSocketStream = makeReadableWebSocketStream(webSocket, earlyDataHeader, log);
+
+  let remoteSocketWrapper = {
+    value: null,
+  };
+  let isDNS = false;
+
+  readableWebSocketStream
+    .pipeTo(
+      new WritableStream({
+        async write(chunk, controller) {
+          if (isDNS) {
+            return handleUDPOutbound(
+              DNS_SERVER_ADDRESS,
+              DNS_SERVER_PORT,
+              chunk,
+              webSocket,
+              null,
+              log,
+              RELAY_SERVER_UDP
+            );
+          }
+          if (remoteSocketWrapper.value) {
+            const writer = remoteSocketWrapper.value.writable.getWriter();
+            await writer.write(chunk);
+            writer.releaseLock();
+            return;
+          }
+
+          const protocol = await protocolSniffer(chunk);
+          let protocolHeader;
+
+          if (protocol === atob(horse)) {
+            protocolHeader = readHorseHeader(chunk);
+          } else if (protocol === atob(flash)) {
+            protocolHeader = readFlashHeader(chunk);
+          } else if (protocol === atob(vless)) {
+            protocolHeader = readVlessHeader(chunk);
+          } else if (protocol === "ss") {
+            protocolHeader = readSsHeader(chunk);
+          } else {
+            throw new Error("Unknown Protocol!");
+          }
+
+          addressLog = protocolHeader.addressRemote;
+          portLog = `${protocolHeader.portRemote} -> ${protocolHeader.isUDP ? "UDP" : "TCP"}`;
+
+          if (protocolHeader.hasError) {
+            throw new Error(protocolHeader.message);
+          }
+
+          if (protocolHeader.isUDP) {
+            if (protocolHeader.portRemote === 53) {
+              isDNS = true;
+              return handleUDPOutbound(
+                DNS_SERVER_ADDRESS,
+                DNS_SERVER_PORT,
+                chunk,
+                webSocket,
+                protocolHeader.version,
+                log,
+                RELAY_SERVER_UDP
+              );
+            }
+
+            return handleUDPOutbound(
+              protocolHeader.addressRemote,
+              protocolHeader.portRemote,
+              chunk,
+              webSocket,
+              protocolHeader.version,
+              log,
+              RELAY_SERVER_UDP
+            );
+          }
+
+          handleTCPOutBound(
+            remoteSocketWrapper,
+            protocolHeader.addressRemote,
+            protocolHeader.portRemote,
+            protocolHeader.rawClientData,
+            webSocket,
+            protocolHeader.version,
+            log
+          );
+        },
+        close() {
+          log(`readableWebSocketStream is close`);
+        },
+        abort(reason) {
+          log(`readableWebSocketStream is abort`, JSON.stringify(reason));
+        },
+      })
+    )
+    .catch((err) => {
+      log("readableWebSocketStream pipeTo error", err);
+    });
+
+  return new Response(null, {
+    status: 101,
+    webSocket: client,
+  });
+}
+
+// ===== HTTP HANDLERS =====
+async function reverseWeb(request, target, targetPath) {
+  const targetUrl = new URL(request.url);
+  const targetChunk = target.split(":");
+
+  targetUrl.hostname = targetChunk[0];
+  targetUrl.port = targetChunk[1]?.toString() || "443";
+  targetUrl.pathname = targetPath || targetUrl.pathname;
+
+  const modifiedRequest = new Request(targetUrl, request);
+  modifiedRequest.headers.set("X-Forwarded-Host", request.headers.get("Host"));
+
+  const response = await fetch(modifiedRequest);
+
+  const newResponse = new Response(response.body, response);
+  for (const [key, value] of Object.entries(CORS_HEADER_OPTIONS)) {
+    newResponse.headers.set(key, value);
+  }
+  newResponse.headers.set("X-Proxied-By", "Cloudflare Worker");
+
+  return newResponse;
+}
+
+async function embedAssets(response, originalUrl) {
+  const rewriter = new HTMLRewriter();
+
+  const fetchAndEncode = async (assetUrl) => {
+    try {
+      const absoluteUrl = new URL(assetUrl, originalUrl.href).href;
+      const assetResponse = await fetch(absoluteUrl);
+      if (!assetResponse.ok) return null;
+
+      const contentType = assetResponse.headers.get('content-type') || 'application/octet-stream';
+      const buffer = await assetResponse.arrayBuffer();
+      const base64 = bufferToBase64(buffer);
+      return `data:${contentType};base64,${base64}`;
+    } catch (e) {
+      console.error(`Failed to fetch and embed asset: ${assetUrl}`, e);
+      return null;
     }
-  } catch (error) {
-    console.error("safeCloseWebSocket error", error);
-  }
+  };
+
+  rewriter.on('link[rel="stylesheet"]', {
+    async element(element) {
+      const href = element.getAttribute('href');
+      if (href) {
+        const absoluteUrl = new URL(href, originalUrl.href).href;
+        const cssResponse = await fetch(absoluteUrl);
+        if (cssResponse.ok) {
+          const cssText = await cssResponse.text();
+          element.replace(`<style>${cssText}</style>`, { html: true });
+        }
+      }
+    },
+  });
+
+  rewriter.on('img', {
+    async element(element) {
+      const src = element.getAttribute('src');
+      if (src && !src.startsWith('data:')) {
+        const dataUri = await fetchAndEncode(src);
+        if (dataUri) {
+          element.setAttribute('src', dataUri);
+        }
+      }
+    },
+  });
+
+  rewriter.on('script[src]', {
+    async element(element) {
+      const src = element.getAttribute('src');
+      if (src) {
+        const absoluteUrl = new URL(src, originalUrl.href).href;
+        const scriptResponse = await fetch(absoluteUrl);
+        if (scriptResponse.ok) {
+          const scriptText = await scriptResponse.text();
+          element.removeAttribute('src');
+          element.append(scriptText, { html: false });
+        }
+      }
+    }
+  });
+
+  return rewriter.transform(response);
 }
 
-function base64ToArrayBuffer(base64Str) {
-  if (!base64Str) {
-    return { error: null };
-  }
+async function handleSubPage(request) {
   try {
-    base64Str = base64Str.replace(/-/g, "+").replace(/_/g, "/");
-    const decode = atob(base64Str);
-    const arryBuffer = Uint8Array.from(decode, (c) => c.charCodeAt(0));
-    return { earlyData: arryBuffer.buffer, error: null };
-  } catch (error) {
-    return { error };
+    const url = new URL(request.url);
+    const page = url.pathname.match(/^\/sub\/(\d+)$/);
+    const pageIndex = parseInt(page ? page[1] : "0");
+    const pageSize = 20;
+
+    const countrySelect = url.searchParams.get("cc")?.split(",");
+    const kvPrx = await getKVPrxList();
+    
+    let proxyList = [];
+    for (const [country, ips] of Object.entries(kvPrx)) {
+      if (!countrySelect || countrySelect.includes(country)) {
+        ips.forEach(ip => {
+          const [proxyIP, proxyPort] = ip.split(/[:=-]/);
+          proxyList.push({
+            proxyIP,
+            proxyPort,
+            country,
+            org: `${country}-${proxyIP}`
+          });
+        });
+      }
+    }
+
+    const start = pageIndex * pageSize;
+    const end = start + pageSize;
+    const slicedProxies = proxyList.slice(start, end);
+
+    const doc = new Document(request);
+    doc.setTitle("Available Proxies");
+
+    for (const proxy of slicedProxies) {
+      const configs = await generateConfig(url.hostname, proxy);
+      doc.addProxy(proxy, configs);
+    }
+
+    doc.addPagination(pageIndex, end < proxyList.length);
+
+    return new Response(doc.build(), {
+      headers: { 
+        "Content-Type": "text/html;charset=utf-8",
+        "Cache-Control": "public, max-age=300"
+      }
+    });
+  } catch (err) {
+    return new Response(`Error: ${err.message}`, { status: 500 });
   }
 }
 
-function arrayBufferToHex(buffer) {
-  return [...new Uint8Array(buffer)].map((x) => x.toString(16).padStart(2, "0")).join("");
-}
+// ===== HTML/UI COMPONENTS =====
 const baseHTML = `
 <!DOCTYPE html>
 <html lang="en" id="html" class="scroll-auto scrollbar-hide dark">
@@ -881,123 +844,177 @@ const baseHTML = `
 </html>`;
 
 class Document {
-    constructor(request) {
-        this.html = baseHTML;
-        this.request = request;
-        this.url = new URL(request.url);
-        this.proxies = [];
-    }
+  constructor(request) {
+    this.html = baseHTML;
+    this.request = request;
+    this.url = new URL(request.url);
+    this.proxies = [];
+  }
 
-    setTitle(title) {
-        this.html = this.html.replace("PLACEHOLDER_TITLE", title);
-    }
+  setTitle(title) {
+    this.html = this.html.replace("PLACEHOLDER_TITLE", title);
+  }
 
-    addProxy(proxy, configs) {
-        this.proxies.push({ proxy, configs });
-    }
+  addProxy(proxy, configs) {
+    this.proxies.push({ proxy, configs });
+  }
 
-    buildFlags() {
-        const flags = [...new Set(this.proxies.map(p => p.proxy.country))];
-        const flagElements = flags.map(country => 
-            `<a href="/sub?cc=${country}" class="py-1">
-                <img width=20 src="https://hatscripts.github.io/circle-flags/flags/${country.toLowerCase()}.svg" 
-                     onerror="this.style.display='none'" />
-             </a>`
-        ).join('');
-        this.html = this.html.replace("PLACEHOLDER_FLAGS", flagElements);
-    }
+  buildFlags() {
+    const flags = [...new Set(this.proxies.map(p => p.proxy.country))];
+    const flagElements = flags.map(country => 
+      `<a href="/sub?cc=${country}" class="py-1">
+          <img width=20 src="https://hatscripts.github.io/circle-flags/flags/${country.toLowerCase()}.svg" 
+               onerror="this.style.display='none'" />
+       </a>`
+    ).join('');
+    this.html = this.html.replace("PLACEHOLDER_FLAGS", flagElements);
+  }
 
-    buildProxies() {
-        const proxyElements = this.proxies.map(({proxy, configs}) => `
-            <div class="lozad mb-2 bg-white dark:bg-neutral-800 rounded-lg p-4 w-60 border-2 border-neutral-800">
-                <div class="rounded py-1 px-2 bg-amber-400 dark:bg-neutral-800 dark:border-2 dark:border-amber-400">
-                    <h5 class="font-bold text-md text-neutral-900 dark:text-white mb-1 overflow-hidden text-ellipsis whitespace-nowrap">
-                        ${proxy.org}
-                    </h5>
-                    <div class="text-neutral-900 dark:text-white text-sm">
-                        <p>IP: ${proxy.proxyIP}</p>
-                        <p>Port: ${proxy.proxyPort}</p>
-                        <p>CC: ${proxy.country}</p>
-                    </div>
-                </div>
-                <div class="flex flex-col gap-2 mt-3 text-sm">
-                    <button onclick="copyToClipboard('${configs.vless.tls}')" 
-                            class="bg-blue-500 dark:bg-neutral-800 dark:border-2 dark:border-blue-500 rounded p-1 w-full text-white hover:bg-blue-600">
-                        VLESS TLS
-                    </button>
-                    <button onclick="copyToClipboard('${configs.vless.ntls}')"
-                            class="bg-blue-500 dark:bg-neutral-800 dark:border-2 dark:border-blue-500 rounded p-1 w-full text-white hover:bg-blue-600">
-                        VLESS Non-TLS
-                    </button>
-                    <button onclick="copyToClipboard('${configs.trojan.tls}')"
-                            class="bg-blue-500 dark:bg-neutral-800 dark:border-2 dark:border-blue-500 rounded p-1 w-full text-white hover:bg-blue-600">
-                        Trojan
-                    </button>
-                    <button onclick="copyToClipboard('${configs.vmess.tls}')"
-                            class="bg-blue-500 dark:bg-neutral-800 dark:border-2 dark:border-blue-500 rounded p-1 w-full text-white hover:bg-blue-600">
-                        VMESS
-                    </button>
-                    <button onclick="copyToClipboard('${configs.ss.tls}')"
-                            class="bg-blue-500 dark:bg-neutral-800 dark:border-2 dark:border-blue-500 rounded p-1 w-full text-white hover:bg-blue-600">
-                        Shadowsocks
-                    </button>
-                </div>
-            </div>
-        `).join('');
-        this.html = this.html.replace("PLACEHOLDER_PROXIES", proxyElements);
-    }
+  buildProxies() {
+    const proxyElements = this.proxies.map(({proxy, configs}) => `
+      <div class="lozad mb-2 bg-white dark:bg-neutral-800 rounded-lg p-4 w-60 border-2 border-neutral-800">
+        <div class="rounded py-1 px-2 bg-amber-400 dark:bg-neutral-800 dark:border-2 dark:border-amber-400">
+          <h5 class="font-bold text-md text-neutral-900 dark:text-white mb-1 overflow-hidden text-ellipsis whitespace-nowrap">
+            ${proxy.org}
+          </h5>
+          <div class="text-neutral-900 dark:text-white text-sm">
+            <p>IP: ${proxy.proxyIP}</p>
+            <p>Port: ${proxy.proxyPort}</p>
+            <p>CC: ${proxy.country}</p>
+          </div>
+        </div>
+        <div class="flex flex-col gap-2 mt-3 text-sm">
+          <button onclick="copyToClipboard('${configs.vless.tls}')" 
+                  class="bg-blue-500 dark:bg-neutral-800 dark:border-2 dark:border-blue-500 rounded p-1 w-full text-white hover:bg-blue-600">
+            VLESS TLS
+          </button>
+          <button onclick="copyToClipboard('${configs.vless.ntls}')"
+                  class="bg-blue-500 dark:bg-neutral-800 dark:border-2 dark:border-blue-500 rounded p-1 w-full text-white hover:bg-blue-600">
+            VLESS Non-TLS
+          </button>
+          <button onclick="copyToClipboard('${configs.trojan.tls}')"
+                  class="bg-blue-500 dark:bg-neutral-800 dark:border-2 dark:border-blue-500 rounded p-1 w-full text-white hover:bg-blue-600">
+            Trojan
+          </button>
+          <button onclick="copyToClipboard('${configs.vmess.tls}')"
+                  class="bg-blue-500 dark:bg-neutral-800 dark:border-2 dark:border-blue-500 rounded p-1 w-full text-white hover:bg-blue-600">
+            VMESS
+          </button>
+          <button onclick="copyToClipboard('${configs.ss.tls}')"
+                  class="bg-blue-500 dark:bg-neutral-800 dark:border-2 dark:border-blue-500 rounded p-1 w-full text-white hover:bg-blue-600">
+            Shadowsocks
+          </button>
+        </div>
+      </div>
+    `).join('');
+    this.html = this.html.replace("PLACEHOLDER_PROXIES", proxyElements);
+  }
 
-    addPagination(currentPage, hasMore) {
-        const pagination = `
-            ${currentPage > 0 ? `
-                <li><button class="px-3 py-1 bg-amber-400 border-2 border-neutral-800 rounded hover:bg-amber-500" 
-                            onclick="navigateTo('/sub/${currentPage - 1}')">Previous</button></li>
-            ` : ''}
-            ${hasMore ? `
-                <li><button class="px-3 py-1 bg-amber-400 border-2 border-neutral-800 rounded hover:bg-amber-500" 
-                            onclick="navigateTo('/sub/${currentPage + 1}')">Next</button></li>
-            ` : ''}
-        `;
-        this.html = this.html.replace("PLACEHOLDER_PAGINATION", pagination);
-    }
+  addPagination(currentPage, hasMore) {
+    const pagination = `
+      ${currentPage > 0 ? `
+        <li><button class="px-3 py-1 bg-amber-400 border-2 border-neutral-800 rounded hover:bg-amber-500" 
+                    onclick="navigateTo('/sub/${currentPage - 1}')">Previous</button></li>
+      ` : ''}
+      ${hasMore ? `
+        <li><button class="px-3 py-1 bg-amber-400 border-2 border-neutral-800 rounded hover:bg-amber-500" 
+                    onclick="navigateTo('/sub/${currentPage + 1}')">Next</button></li>
+      ` : ''}
+    `;
+    this.html = this.html.replace("PLACEHOLDER_PAGINATION", pagination);
+  }
 
-    build() {
-        this.buildFlags();
-        this.buildProxies();
-        return this.html;
-    }
+  build() {
+    this.buildFlags();
+    this.buildProxies();
+    return this.html;
+  }
 }
 
+// ===== CONFIG GENERATOR =====
 async function generateConfig(hostname, proxy) {
-    const uuid = crypto.randomUUID();
-    const path = `/${proxy.proxyIP}:${proxy.proxyPort}`;
-    
-    return {
-        vless: {
-            tls: `vless://${uuid}@${hostname}:443?encryption=none&security=tls&sni=${hostname}&fp=chrome&type=ws&host=${hostname}&path=${path}#${proxy.org}-TLS`,
-            ntls: `vless://${uuid}@${hostname}:80?encryption=none&security=none&sni=${hostname}&fp=chrome&type=ws&host=${hostname}&path=${path}#${proxy.org}-NTLS`
-        },
-        trojan: {
-            tls: `trojan://${uuid}@${hostname}:443?security=tls&sni=${hostname}&type=ws&host=${hostname}&path=${path}#${proxy.org}-TLS`
-        },
-        vmess: {
-            tls: `vmess://${btoa(JSON.stringify({
-                v: "2",
-                ps: `${proxy.org}-TLS`,
-                add: hostname,
-                port: 443,
-                id: uuid,
-                aid: 0,
-                net: "ws",
-                type: "none",
-                host: hostname,
-                path: path,
-                tls: "tls",
-                sni: hostname
-            }))}`
-        },
-        ss: {
-            tls: `ss://${btoa(`aes-256-gcm:${uuid}@${hostname}:443`)}?plugin=v2ray-plugin%3Bhost%3D${hostname}%3Bpath%3D${path}%3Btls#${proxy.org}-TLS`
-        }
-    };
+  const uuid = crypto.randomUUID();
+  const path = `/${proxy.proxyIP}:${proxy.proxyPort}`;
+  
+  return {
+    vless: {
+      tls: `vless://${uuid}@${hostname}:443?encryption=none&security=tls&sni=${hostname}&fp=chrome&type=ws&host=${hostname}&path=${path}#${proxy.org}-TLS`,
+      ntls: `vless://${uuid}@${hostname}:80?encryption=none&security=none&sni=${hostname}&fp=chrome&type=ws&host=${hostname}&path=${path}#${proxy.org}-NTLS`
+    },
+    trojan: {
+      tls: `trojan://${uuid}@${hostname}:443?security=tls&sni=${hostname}&type=ws&host=${hostname}&path=${path}#${proxy.org}-TLS`
+    },
+    vmess: {
+      tls: `vmess://${btoa(JSON.stringify({
+        v: "2",
+        ps: `${proxy.org}-TLS`,
+        add: hostname,
+        port: 443,
+        id: uuid,
+        aid: 0,
+        net: "ws",
+        type: "none",
+        host: hostname,
+        path: path,
+        tls: "tls",
+        sni: hostname
+      }))}`
+    },
+    ss: {
+      tls: `ss://${btoa(`aes-256-gcm:${uuid}@${hostname}:443`)}?plugin=v2ray-plugin%3Bhost%3D${hostname}%3Bpath%3D${path}%3Btls#${proxy.org}-TLS`
+    }
+  };
 }
+
+// ===== MAIN EXPORT =====
+export default {
+  async fetch(request, env, ctx) {
+    try {
+      const url = new URL(request.url);
+      APP_DOMAIN = url.hostname;
+      serviceName = APP_DOMAIN.split(".")[0];
+
+      const upgradeHeader = request.headers.get("Upgrade");
+
+      // Handle WebSocket connections
+      if (upgradeHeader === "websocket") {
+        const pathRegex = /^\/([^:=-]+)[:=-](\d+)$/;
+        const prxMatch = url.pathname.match(pathRegex);
+
+        if (url.pathname.length == 3 || url.pathname.match(",")) {
+          const prxKeys = url.pathname.replace("/", "").toUpperCase().split(",");
+          const prxKey = prxKeys[Math.floor(Math.random() * prxKeys.length)];
+          const kvPrx = await getKVPrxList();
+
+          if (kvPrx && kvPrx[prxKey]) {
+            const selectedPrx = kvPrx[prxKey][Math.floor(Math.random() * kvPrx[prxKey].length)];
+            prxIP = selectedPrx.replace(/[-=]/, ':');
+          }
+          return await websocketHandler(request);
+        } else if (prxMatch) {
+          prxIP = `${prxMatch[1]}:${prxMatch[2]}`;
+          return await websocketHandler(request);
+        }
+      }
+
+      // Handle web interface and reverse proxy
+      if (url.pathname.startsWith("/sub")) {
+        return await handleSubPage(request);
+      }
+
+      const targetReversePrx = env.REVERSE_PRX_TARGET || "example.com";
+      const response = await reverseWeb(request, targetReversePrx);
+
+      if (env.EMBED_ASSETS === 'true' && response.headers.get('content-type')?.includes('text/html')) {
+        return embedAssets(response, url);
+      }
+
+      return response;
+    } catch (err) {
+      return new Response(`An error occurred: ${err.toString()}`, {
+        status: 500,
+        headers: { ...CORS_HEADER_OPTIONS },
+      });
+    }
+  },
+};
